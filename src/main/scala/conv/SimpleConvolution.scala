@@ -51,7 +51,7 @@ class SimpleConvolution extends Module {
     total
   }
 
-  io.pixel_out.valid := false.B
+  io.pixel_out.valid := out_valid
   io.pixel_out.bits := convolve(buffer, weights, buffer_in)
 
   when (io.pixel_in.valid.toBool && io.set_weights.toBool) {
@@ -71,7 +71,7 @@ class SimpleConvolution extends Module {
       buffer_in := buffer_in + 1.U
     }.otherwise {
       // if we're not outputting stuff yet, we should be now
-      io.pixel_out.valid := true.B
+      out_valid := true.B
       buffer_in := 0.U
     }
   }
