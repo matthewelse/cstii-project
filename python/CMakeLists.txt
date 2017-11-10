@@ -15,6 +15,7 @@ add_library(verilator STATIC ${VERILATOR_SRCS})
 set(VERILATED_DIRECTORY obj_dir)
 set(VERILOG_DIRECTORY ${PROJECT_SOURCE_DIR}/../build)
 set(VERILOG_SRCS ${VERILOG_DIRECTORY}/simple_convolution.v)
+
 add_custom_command(
     OUTPUT generated/Vsimple_convolution.cpp
     COMMAND ${CMAKE_COMMAND} -E make_directory generated
