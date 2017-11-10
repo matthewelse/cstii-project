@@ -5,26 +5,26 @@ import chisel3._
 import chisel3.util.ValidIO
 
 /**
-  * Pipelined multiply/accumulate operations to speed up convolutions.
-  *           ┌───┐         ┌───┐         ┌───┐         ┌───┐         ┌───┐         ┌───┐         ┌───┐         ┌───┐
-  * p ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐
-  * i ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆
-  * x ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆
-  * e ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆
-  * l ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
-  * s ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
-  *   ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
-  * i ┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
-  * n ┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
-  *         ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆
-  *         ┆             ┆             ┆             ┆             ┆             ┆             ┆             ┆             ┆
-  *        ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐
-  *    w0┈┈┤*├┈┈┤+├┐ w1┈┈┤*├┈┈┤+├┐ w2┈┈┤*├┈┈┤+├┐ w3┈┈┤*├┈┈┤+├┐ w4┈┈┤*├┈┈┤+├┐ w5┈┈┤*├┈┈┤+├┐ w6┈┈┤*├┈┈┤+├┐ w7┈┈┤*├┈┈┤+├┐ w8┈┈┤*├┈┈┤+├┈┈ pixel_out
-  *        └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘
-  *              0 ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆
-  *                └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘
-  *                     └^┘           └^┘           └^┘           └^┘           └^┘           └^┘           └^┘           └^┘
+  * Pipelined multiply/accumulate operations to speed up convolutions. This should generalise nicely to 1-dimensional
+  * convolutions.
   *
+  * Block Diagram (convolutionSize=6):
+  *            ┌───┐         ┌───┐         ┌───┐         ┌───┐         ┌───┐
+  * p ┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐
+  * i ┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆
+  * x ┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆
+  * e ┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆
+  * l ┈┈┈┈╱┈┈┈┈┤   ├┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
+  *   ┈┈┈┈╱┈┈┐ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
+  * i        ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆ │   │       ┆
+  * n        ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆ └─^─┘       ┆
+  *          ┆             ┆             ┆             ┆             ┆             ┆
+  *         ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐      ┌┴┐  ┌─┐
+  *     w0┈┈┤*├┈┈┤+├┐ w1┈┈┤*├┈┈┤+├┐ w2┈┈┤*├┈┈┤+├┐ w3┈┈┤*├┈┈┤+├┐ w4┈┈┤*├┈┈┤+├┐ w5┈┈┤*├┈┈┤+├┈┈ pixel_out
+  *         └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘┆     └─┘  └┬┘
+  *               ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆ ┆    ┌─┐    ┆
+  *               0 └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘ └┈┈┈┈┤ ├┈┈┈┈┘
+  *                      └^┘           └^┘           └^┘           └^┘           └^┘
   * @param convolutionSize total number of weights in each convolution operation.
   * @param pixelSize number of bits
   */
@@ -36,6 +36,7 @@ class ConvolutionDataPath(convolutionSize: Int, pixelSize: Int) extends Module {
     val weights = Input(Vec(convolutionSize, SInt(pixelSize.W)))
   })
 
+  // TODO: bundle pixel data and valid bit together
   private val pixelShiftRegister = Seq.tabulate(convolutionSize) (n => {
     RegInit(VecInit(Seq.fill(convolutionSize - n) {
       0.S(pixelSize.W)
@@ -56,7 +57,7 @@ class ConvolutionDataPath(convolutionSize: Int, pixelSize: Int) extends Module {
     pixelShiftRegister.head(i) := io.pixels_in.bits(i)
   }
 
-  macs(0).io.partial := 0.S
+  macs.head.io.partial := 0.S
   validShiftRegister(0) := io.pixels_in.valid
 
   // Setup the data path
